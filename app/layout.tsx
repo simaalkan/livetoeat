@@ -13,14 +13,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full bg-slate-950 text-slate-50">
+      <body className="min-h-full bg-background text-foreground">
         <div className="min-h-screen flex flex-col">
-          <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur">
+          <header className="border-b border-border bg-background/60 backdrop-blur">
             <div className="container mx-auto flex items-center justify-between py-4">
               <h1 className="text-lg font-semibold tracking-tight">
                 Favorite Restaurants
               </h1>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-muted-foreground">
                 Simple tracking app • SQLite + Prisma
               </span>
             </div>
