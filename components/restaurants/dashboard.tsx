@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useActionState, useOptimistic, useState } from 'react';
+import { Settings2 } from "lucide-react"; // İkon için ekledik
 
 import {
   addRestaurantAction,
@@ -26,10 +27,10 @@ import {
 } from '@/components/restaurants/restaurant-card';
 import { RestaurantForm } from '@/components/restaurants/restaurant-form';
 import { RestaurantEditForm } from '@/components/restaurants/restaurant-edit-form';
+import { CategoryManager } from '@/components/restaurants/category-manager'; // Yeni bileşen
 import { Badge } from '@/components/ui/badge';
 
 type DashboardRestaurant = RestaurantWithRelations;
-
 type DashboardCategory = RestaurantCategory;
 
 type RestaurantsDashboardProps = {
@@ -48,11 +49,10 @@ export function RestaurantsDashboard({
 }: RestaurantsDashboardProps) {
   const [search, setSearch] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
-   const [minRating, setMinRating] = useState<number | null>(null);
+  const [minRating, setMinRating] = useState<number | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingRestaurant, setEditingRestaurant] =
-    useState<DashboardRestaurant | null>(null);
+  const [editingRestaurant, setEditingRestaurant] = useState<DashboardRestaurant | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [optimisticRestaurants, applyOptimistic] = useOptimistic<
@@ -73,54 +73,30 @@ export function RestaurantsDashboard({
     }
   });
 
-  const [formState, formAction, isPending] = useActionState<
-    RestaurantFormState,
-    FormData
-  >(addRestaurantAction, {});
-
-  const [editState, editAction, isEditPending] = useActionState<
-    RestaurantFormState,
-    FormData
-  >(updateRestaurantAction, {});
+  const [formState, formAction, isPending] = useActionState<RestaurantFormState, FormData>(addRestaurantAction, {});
+  const [editState, editAction, isEditPending] = useActionState<RestaurantFormState, FormData>(updateRestaurantAction, {});
 
   const handleCreateRestaurant = async (formData: FormData) => {
     const name = formData.get('name')?.toString().trim() ?? '';
     const note = formData.get('note')?.toString().trim() || null;
+    const ratingRaw = formData.get('rating')?.toString();
+    const rating = ratingRaw ? Number(ratingRaw) : 0;
 
-    if (!name) {
-      return;
-    }
+    if (!name) return;
 
-    const categoryNames = formData
-      .getAll('categories')
-      .map((value) => value.toString());
-
-    const optimisticCategories: DashboardCategory[] = categoryNames.map(
-      (catName, index) => {
-        const existing = allCategories.find(
-          (category) =>
-            category.name.toLowerCase() === catName.toLowerCase()
-        );
-        if (existing) return existing;
-        return {
-          id: -1_000_000 - index,
-          name: catName,
-          isCustom: true
-        };
-      }
-    );
+    const categoryNames = formData.getAll('categories').map((v) => v.toString());
 
     const optimisticRestaurant: DashboardRestaurant = {
       id: -Date.now(),
       name,
       note,
+      rating,
       createdAt: new Date().toISOString(),
-      categories: optimisticCategories,
+      categories: categoryNames.map((name, i) => ({ id: -i, name, isCustom: true })),
       images: []
     };
 
     applyOptimistic({ type: 'add', restaurant: optimisticRestaurant });
-
     await formAction(formData);
     setIsDialogOpen(false);
   };
@@ -133,51 +109,30 @@ export function RestaurantsDashboard({
   const handleUpdateRestaurant = async (formData: FormData) => {
     const idRaw = formData.get('id')?.toString();
     const id = idRaw ? Number(idRaw) : NaN;
-    if (!id || Number.isNaN(id)) {
-      return;
-    }
+    const ratingRaw = formData.get('rating')?.toString();
+    const rating = ratingRaw ? Number(ratingRaw) : 0;
+
+    if (!id || Number.isNaN(id)) return;
 
     const name = formData.get('name')?.toString().trim() ?? '';
     const note = formData.get('note')?.toString().trim() || null;
 
-    if (!name) {
-      return;
-    }
+    if (!name) return;
 
-    const categoryNames = formData
-      .getAll('categories')
-      .map((value) => value.toString());
-
-    const optimisticCategories: DashboardCategory[] = categoryNames.map(
-      (catName, index) => {
-        const existing = allCategories.find(
-          (category) =>
-            category.name.toLowerCase() === catName.toLowerCase()
-        );
-        if (existing) return existing;
-        return {
-          id: -2_000_000 - index,
-          name: catName,
-          isCustom: true
-        };
-      }
-    );
-
-    const previous =
-      optimisticRestaurants.find((restaurant) => restaurant.id === id) ??
-      editingRestaurant;
+    const categoryNames = formData.getAll('categories').map((v) => v.toString());
+    const previous = optimisticRestaurants.find((r) => r.id === id) ?? editingRestaurant;
 
     const optimisticRestaurant: DashboardRestaurant = {
       id,
       name,
       note,
+      rating,
       createdAt: previous?.createdAt ?? new Date().toISOString(),
-      categories: optimisticCategories,
+      categories: categoryNames.map((name, i) => ({ id: -2000 - i, name, isCustom: true })),
       images: previous?.images ?? []
     };
 
     applyOptimistic({ type: 'update', restaurant: optimisticRestaurant });
-
     await editAction(formData);
     setIsEditDialogOpen(false);
     setEditingRestaurant(null);
@@ -185,7 +140,7 @@ export function RestaurantsDashboard({
 
   const handleToggleFilterCategory = (id: number) => {
     setSelectedCategoryIds((current) =>
-      current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
+      current.includes(id) ? current.filter((v) => v !== id) : [...current, id]
     );
   };
 
@@ -193,52 +148,37 @@ export function RestaurantsDashboard({
     setDeletingId(id);
     applyOptimistic({ type: 'delete', id });
     await deleteRestaurantAction(id);
-    setDeletingId((current) => (current === id ? null : current));
+    setDeletingId(null);
   };
 
   const normalizedSearch = search.trim().toLowerCase();
 
   const filteredRestaurants = optimisticRestaurants.filter((restaurant) => {
-    const matchesSearch =
-      !normalizedSearch ||
-      restaurant.name.toLowerCase().includes(normalizedSearch);
-
-    const matchesCategoryFilter =
-      selectedCategoryIds.length === 0 ||
-      restaurant.categories.some((category) =>
-        selectedCategoryIds.includes(category.id)
-      );
-
-    const ratingValue =
-      typeof restaurant.rating === 'number' ? restaurant.rating : 0;
-    const matchesRatingFilter =
-      minRating === null || ratingValue >= minRating;
+    const matchesSearch = !normalizedSearch || restaurant.name.toLowerCase().includes(normalizedSearch);
+    const matchesCategoryFilter = selectedCategoryIds.length === 0 || 
+      restaurant.categories.some((cat) => selectedCategoryIds.includes(cat.id));
+    const ratingValue = typeof restaurant.rating === 'number' ? restaurant.rating : 0;
+    const matchesRatingFilter = minRating === null || ratingValue >= minRating;
 
     return matchesSearch && matchesCategoryFilter && matchesRatingFilter;
   });
 
-  const hasFilters =
-    normalizedSearch.length > 0 ||
-    selectedCategoryIds.length > 0 ||
-    minRating !== null;
+  const hasFilters = normalizedSearch.length > 0 || selectedCategoryIds.length > 0 || minRating !== null;
 
   return (
     <div className="space-y-6">
+      {/* HEADER & SEARCH SECTION */}
       <section className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-sm md:flex-row md:items-center md:justify-between">
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Favorite Restaurants
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Search, filter, and add places you love.
-          </p>
+          <h2 className="text-lg font-semibold tracking-tight">Favorite Restaurants</h2>
+          <p className="text-sm text-muted-foreground">Search, filter, and add places you love.</p>
         </div>
 
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <Input
             placeholder="Search by name..."
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             className="md:w-64"
           />
 
@@ -246,87 +186,79 @@ export function RestaurantsDashboard({
             <DialogTrigger asChild>
               <Button className="md:ml-3">Add Restaurant</Button>
             </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Restaurant</DialogTitle>
-              </DialogHeader>
+            <DialogContent className="max-w-2xl">
               <RestaurantForm
                 onSubmit={handleCreateRestaurant}
                 isSubmitting={isPending}
                 categories={allCategories}
                 defaultCategoryNames={['Cafe', 'Pub', 'Restaurant']}
               />
-              {formState.error && (
-                <p className="mt-2 text-sm text-destructive">
-                  {formState.error}
-                </p>
-              )}
+              {formState.error && <p className="mt-2 text-sm text-destructive">{formState.error}</p>}
             </DialogContent>
           </Dialog>
         </div>
       </section>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Filter by category:
-            </span>
-            {allCategories.map((category) => {
-              const isActive = selectedCategoryIds.includes(category.id);
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() => handleToggleFilterCategory(category.id)}
-                >
-                  <Badge variant={isActive ? 'default' : 'outline'}>
-                    {category.name}
-                  </Badge>
-                </button>
-              );
-            })}
+      {/* FILTERS SECTION */}
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 p-4 rounded-lg border bg-muted/20">
+          {/* Category Filter Row */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Category:</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {allCategories.map((category) => {
+                const isActive = selectedCategoryIds.includes(category.id);
+                return (
+                  <button key={category.id} onClick={() => handleToggleFilterCategory(category.id)}>
+                    <Badge variant={isActive ? 'default' : 'outline'} className="cursor-pointer">
+                      {category.name}
+                    </Badge>
+                  </button>
+                );
+              })}
+              
+              {/* MANAGE CATEGORIES BUTTON */}
+              <div className="ml-2 border-l pl-3">
+                <CategoryManager categories={allCategories} />
+              </div>
+            </div>
           </div>
-          {hasFilters && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearch('');
-                setSelectedCategoryIds([]);
-                setMinRating(null);
-              }}
+
+          {/* Rating Filter Row */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Min Rating:</span>
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium"
+              value={minRating ?? ''}
+              onChange={(e) => setMinRating(e.target.value ? Number(e.target.value) : null)}
             >
-              Clear filters
-            </Button>
-          )}
+              <option value="">Any rating</option>
+              <option value="3">⭐ 3.0 & up</option>
+              <option value="4">⭐ 4.0 & up</option>
+              <option value="5">⭐ 5.0 only</option>
+            </select>
+
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-muted-foreground hover:text-destructive"
+                onClick={() => {
+                  setSearch('');
+                  setSelectedCategoryIds([]);
+                  setMinRating(null);
+                }}
+              >
+                Clear all filters
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            Filter by rating:
-          </span>
-          <select
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-            value={minRating ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              setMinRating(value ? Number(value) : null);
-            }}
-          >
-            <option value="">Any rating</option>
-            <option value="3">⭐ 3.0 &amp; up</option>
-            <option value="4">⭐ 4.0 &amp; up</option>
-            <option value="4.5">⭐ 4.5 &amp; up</option>
-          </select>
-        </div>
-
+        {/* RESULTS GRID */}
         {filteredRestaurants.length === 0 ? (
           <div className="rounded-lg border border-dashed bg-muted/40 px-6 py-10 text-center text-sm text-muted-foreground">
-            {hasFilters
-              ? 'No restaurants match your current filters.'
-              : 'No restaurants yet. Use “Add Restaurant” to create your first entry.'}
+            {hasFilters ? 'No matches found.' : 'No restaurants yet.'}
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -343,19 +275,9 @@ export function RestaurantsDashboard({
         )}
       </section>
 
-      <Dialog
-        open={isEditDialogOpen}
-        onOpenChange={(open) => {
-          setIsEditDialogOpen(open);
-          if (!open) {
-            setEditingRestaurant(null);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Restaurant</DialogTitle>
-          </DialogHeader>
+      {/* EDIT DIALOG */}
+      <Dialog open={isEditDialogOpen} onOpenChange={(open) => { setIsEditDialogOpen(open); if (!open) setEditingRestaurant(null); }}>
+        <DialogContent className="max-w-2xl">
           {editingRestaurant && (
             <RestaurantEditForm
               restaurant={editingRestaurant}
@@ -365,12 +287,9 @@ export function RestaurantsDashboard({
               onSubmit={handleUpdateRestaurant}
             />
           )}
-          {editState.error && (
-            <p className="mt-2 text-sm text-destructive">{editState.error}</p>
-          )}
+          {editState.error && <p className="mt-2 text-sm text-destructive">{editState.error}</p>}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
-

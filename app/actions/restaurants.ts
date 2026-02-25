@@ -1,3 +1,4 @@
+"use server";
 import { mkdir, unlink, writeFile } from 'fs/promises';
 import path from 'path';
 
@@ -60,14 +61,39 @@ async function deleteImageFile(url: string) {
   }
 }
 
+// YENİ: Kategori Oluşturma Aksiyonu
+export async function createCategoryAction(name: string) {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error("Category name cannot be empty");
+
+  // Mevcut mu kontrol et
+  const existing = await prisma.category.findUnique({
+    where: { name: trimmedName }
+  });
+
+  if (existing) {
+    throw new Error("Category already exists");
+  }
+
+  await prisma.category.create({
+    data: {
+      name: trimmedName,
+      isCustom: true
+    }
+  });
+
+  revalidatePath('/');
+  return { success: true };
+}
+
 export async function addRestaurantAction(
   _prevState: RestaurantFormState,
   formData: FormData
 ): Promise<RestaurantFormState> {
-  'use server';
-
   const name = formData.get('name')?.toString().trim() ?? '';
   const note = formData.get('note')?.toString().trim() || null;
+  const ratingRaw = formData.get('rating')?.toString();
+  const rating = ratingRaw ? Number(ratingRaw) : 0;
 
   if (!name) {
     return { error: 'Name is required.' };
@@ -80,29 +106,21 @@ export async function addRestaurantAction(
     .map((value) => value.toString().trim())
     .filter(Boolean);
 
+  // Yeni mantık: Sadece mevcut olanlara bağlan (upsert yerine findUnique/connect)
   const categoryConnect = await Promise.all(
     categoryNames.map(async (catName) => {
-      const isDefault = DEFAULT_CATEGORY_NAMES.includes(
-        catName as (typeof DEFAULT_CATEGORY_NAMES)[number]
-      );
-
-      const category = await prisma.category.upsert({
-        where: { name: catName },
-        update: {},
-        create: {
-          name: catName,
-          isCustom: !isDefault
-        }
+      const category = await prisma.category.findUnique({
+        where: { name: catName }
       });
-
-      return { id: category.id };
+      return category ? { id: category.id } : null;
     })
-  );
+  ).then(results => results.filter((item): item is { id: number } => item !== null));
 
   const restaurant = await prisma.restaurant.create({
     data: {
       name,
       note,
+      rating: (rating && rating > 0) ? rating : 0,
       categories: {
         connect: categoryConnect
       }
@@ -129,47 +147,10 @@ export async function addRestaurantAction(
   return {};
 }
 
-export async function rateRestaurantAction(
-  _prevState: RatingFormState,
-  formData: FormData
-): Promise<RatingFormState> {
-  'use server';
-
-  const idRaw =
-    formData.get('id')?.toString() ?? formData.get('restaurantId')?.toString();
-  const ratingRaw = formData.get('rating')?.toString();
-
-  const id = idRaw ? Number(idRaw) : NaN;
-  const rating = ratingRaw ? Number(ratingRaw) : NaN;
-
-  if (!id || Number.isNaN(id)) {
-    return { error: 'Invalid restaurant id.' };
-  }
-
-  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
-    return { error: 'Rating must be between 1 and 5.' };
-  }
-
-  await prisma.restaurant.update({
-    where: { id },
-    data: {
-      rating
-    }
-  });
-
-  revalidatePath('/');
-  revalidatePath('/restaurants');
-  revalidatePath(`/restaurants/${id}`);
-
-  return {};
-}
-
 export async function updateRestaurantAction(
   _prevState: RestaurantFormState,
   formData: FormData
 ): Promise<RestaurantFormState> {
-  'use server';
-
   const idRaw = formData.get('id')?.toString();
   const id = idRaw ? Number(idRaw) : NaN;
   if (!id || Number.isNaN(id)) {
@@ -178,6 +159,8 @@ export async function updateRestaurantAction(
 
   const name = formData.get('name')?.toString().trim() ?? '';
   const note = formData.get('note')?.toString().trim() || null;
+  const ratingRaw = formData.get('rating')?.toString();
+  const rating = ratingRaw ? Number(ratingRaw) : NaN;
 
   if (!name) {
     return { error: 'Name is required.' };
@@ -201,28 +184,19 @@ export async function updateRestaurantAction(
 
   const categoryConnect = await Promise.all(
     categoryNames.map(async (catName) => {
-      const isDefault = DEFAULT_CATEGORY_NAMES.includes(
-        catName as (typeof DEFAULT_CATEGORY_NAMES)[number]
-      );
-
-      const category = await prisma.category.upsert({
-        where: { name: catName },
-        update: {},
-        create: {
-          name: catName,
-          isCustom: !isDefault
-        }
+      const category = await prisma.category.findUnique({
+        where: { name: catName }
       });
-
-      return { id: category.id };
+      return category ? { id: category.id } : null;
     })
-  );
+  ).then(results => results.filter((item): item is { id: number } => item !== null));
 
   await prisma.restaurant.update({
     where: { id },
     data: {
       name,
       note,
+      rating: !Number.isNaN(rating) ? rating : undefined,
       categories: {
         set: [],
         connect: categoryConnect
@@ -274,13 +248,12 @@ export async function updateRestaurantAction(
   }
 
   revalidatePath('/');
+  revalidatePath(`/restaurants/${id}`);
 
   return {};
 }
 
 export async function deleteRestaurantAction(id: number): Promise<void> {
-  'use server';
-
   if (!id) return;
 
   const images = await prisma.image.findMany({
@@ -297,3 +270,31 @@ export async function deleteRestaurantAction(id: number): Promise<void> {
   revalidatePath('/');
 }
 
+export async function updateRatingAction(id: number, rating: number) {
+  await prisma.restaurant.update({
+    where: { id },
+    data: { rating }
+  });
+  
+  revalidatePath('/');
+  revalidatePath(`/restaurants/${id}`);
+}
+
+export async function deleteCategoryAction(categoryId: number) {
+  const count = await prisma.restaurant.count({
+    where: { categories: { some: { id: categoryId } } }
+  });
+
+  await prisma.category.delete({
+    where: { id: categoryId }
+  });
+
+  revalidatePath('/');
+  return { success: true, affectedRestaurants: count };
+}
+
+export async function checkCategoryUsage(id: number) {
+  return await prisma.restaurant.count({
+    where: { categories: { some: { id } } }
+  });
+}
